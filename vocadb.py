@@ -2,6 +2,7 @@
 """
 from beets.autotag.hooks import AlbumInfo, TrackInfo, Distance
 from beets.plugins import BeetsPlugin
+from beetsplug import lastgenre
 import requests
 import re
 
@@ -9,13 +10,17 @@ import re
 class VocaDBPlugin(BeetsPlugin):
     def __init__(self):
         super(VocaDBPlugin, self).__init__()
+        self.lg = lastgenre.LastGenrePlugin()
         self.config.add({
             'source_weight': 0.5,
             'canonical_artists': True,
+            'separator': ', ',
+            'whitelist': True,
             'lang-priority': ''  # 'Japanese, Romaji, English'
         })
         self._log.debug('Querying VocaDB')
         self.lang = self.config['lang-priority'].get().split(',')
+        self.import_stages = [self.imported]
 
     def album_distance(self, items, album_info, mapping):
         """Returns the album distance."""
@@ -125,15 +130,24 @@ class VocaDBPlugin(BeetsPlugin):
 
         medium = item['discNumber']
         medium_index = item['trackNumber']
-        lyricist = ', '.join([_artist['artist']['name']
-                              for _artist in song['artists']
-                              if 'Lyricist' in _artist['roles'].split(', ')]) or None
-        composer = ', '.join([_artist['artist']['name']
-                              for _artist in song['artists']
-                              if 'Composer' in _artist['roles'].split(', ')]) or None
-        arranger = ', '.join([_artist['artist']['name']
-                              for _artist in song['artists']
-                              if 'Arranger' in _artist['roles'].split(', ')]) or None
+
+        lyricist = self.config['separator'].get().join(
+            [_artist['artist']['name']
+             for _artist in song['artists']
+             if 'Lyricist' in _artist['roles'].split(', ')]
+        ) or None
+
+        composer = self.config['separator'].get().join(
+            [_artist['artist']['name']
+             for _artist in song['artists']
+             if 'Composer' in _artist['roles'].split(', ')]
+        ) or None
+
+        arranger = self.config['separator'].get().join(
+            [_artist['artist']['name']
+             for _artist in song['artists']
+             if 'Arranger' in _artist['roles'].split(', ')]
+        ) or None
 
         return TrackInfo(title, track_id, artist=artist, artist_id=artist_id,
                          length=length, medium=medium,
@@ -168,10 +182,10 @@ class VocaDBPlugin(BeetsPlugin):
         month = item['releaseDate']['month'] if 'month' in item['releaseDate'] else None
         day = item['releaseDate']['day'] if 'day' in item['releaseDate'] else None
 
-        mediums = None
+        mediums = 0
         disctitles = None
 
-        if 'discs' in item and item['discs']:
+        if 'discs' in item: #and item['discs']:
             mediums = len(item['discs'])
             disctitles = {disc['discNumber']: disc['name'] for disc in item['discs']}
 
@@ -180,7 +194,7 @@ class VocaDBPlugin(BeetsPlugin):
             if 'Label' in _artist['categories'].split(', '):
                 label = _artist['name']
                 break
-
+            
         tracks = self.tracks_for_album_id(album_id)
 
         track_index = 1
@@ -198,3 +212,41 @@ class VocaDBPlugin(BeetsPlugin):
                          language=language, country=None,
                          artist_credit=artist_credit, data_source='VocaDB',
                          data_url='http://vocadb.net/albums/%d' % album_id)
+
+    def add_genre_to_item(self, item, is_album):
+        lang = self.lang[0] or 'Default'
+        if is_album:
+            url = 'http://vocadb.net/api/albums/%s?fields=Tags&lang=%s' % (item.mb_albumid, lang)
+        else:
+            url = 'http://vocadb.net/api/songs/%s?fields=Tags&lang=%s' % (item.mb_trackid, lang)
+
+        r = requests.get(url, headers={'Accept': 'application/json'})
+
+        try:
+            obj = r.json()
+        except:
+            self._log.debug('VocaDB JSON Decode Error: (id: %s)' % item.id)
+            return None
+
+        self._log.debug('VocaDB parsing tags.')
+        # Try to find the tags
+        if 'tags' in obj and obj['tags']:
+            tags = [_tag['tag']['name'].lower()
+                    for _tag in obj['tags']]
+
+            if self.config['whitelist']:
+                item.genre = self.lg._resolve_genres(tags)
+            else:
+                item.genre = self.config['separator'].get().join(tags)
+            item.store()
+
+        if is_album:
+            for track in item.items():
+                self.add_genre_to_item(track, False)
+
+    def imported(self, session, task):
+        """Event hook called when an import task finishes."""
+        self._log.debug('VocaDB running import hook.')
+        if task.is_album and 'data_source' in task.items[0] and \
+           task.items[0].data_source == 'VocaDB':
+            self.add_genre_to_item(task.album, True)
