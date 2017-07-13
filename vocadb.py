@@ -185,7 +185,7 @@ class VocaDBPlugin(BeetsPlugin):
         mediums = 0
         disctitles = None
 
-        if 'discs' in item: #and item['discs']:
+        if 'discs' in item:
             mediums = len(item['discs'])
             disctitles = {disc['discNumber']: disc['name'] for disc in item['discs']}
 
@@ -194,7 +194,7 @@ class VocaDBPlugin(BeetsPlugin):
             if 'Label' in _artist['categories'].split(', '):
                 label = _artist['name']
                 break
-            
+
         tracks = self.tracks_for_album_id(album_id)
 
         track_index = 1
@@ -228,7 +228,6 @@ class VocaDBPlugin(BeetsPlugin):
             self._log.debug('VocaDB JSON Decode Error: (id: %s)' % item.id)
             return None
 
-        self._log.debug('VocaDB parsing tags.')
         # Try to find the tags
         if 'tags' in obj and obj['tags']:
             tags = [_tag['tag']['name'].lower()
@@ -246,7 +245,6 @@ class VocaDBPlugin(BeetsPlugin):
 
     def imported(self, session, task):
         """Event hook called when an import task finishes."""
-        self._log.debug('VocaDB running import hook.')
         if task.is_album and 'data_source' in task.items[0] and \
            task.items[0].data_source == 'VocaDB':
             self.add_genre_to_item(task.album, True)
