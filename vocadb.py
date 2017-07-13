@@ -11,6 +11,7 @@ class VocaDBPlugin(BeetsPlugin):
         super(VocaDBPlugin, self).__init__()
         self.config.add({
             'source_weight': 0.5,
+            'canonical_artists': True,
             'lang-priority': ''  # 'Japanese, Romaji, English'
         })
         self._log.debug('Querying VocaDB')
@@ -124,13 +125,22 @@ class VocaDBPlugin(BeetsPlugin):
 
         medium = item['discNumber']
         medium_index = item['trackNumber']
-        # TODO: Lyricist, Composer, Arranger
+        lyricist = ', '.join([_artist['artist']['name']
+                              for _artist in song['artists']
+                              if 'Lyricist' in _artist['roles'].split(', ')]) or None
+        composer = ', '.join([_artist['artist']['name']
+                              for _artist in song['artists']
+                              if 'Composer' in _artist['roles'].split(', ')]) or None
+        arranger = ', '.join([_artist['artist']['name']
+                              for _artist in song['artists']
+                              if 'Arranger' in _artist['roles'].split(', ')]) or None
 
         return TrackInfo(title, track_id, artist=artist, artist_id=artist_id,
                          length=length, medium=medium,
                          medium_index=medium_index, medium_total=None,
                          artist_credit=artist_credit, data_source='VocaDB',
-                         lyricist=None, composer=None, arranger=None)
+                         lyricist=lyricist, composer=composer,
+                         arranger=arranger)
 
     def get_album_info(self, item):
         """"Convert JSON data into a format beets can read."""
@@ -143,9 +153,10 @@ class VocaDBPlugin(BeetsPlugin):
         va = (artist == 'Various artists')  # if compilation
 
         # Try to find the producer
-        if (not va) and ('artists' in item):
+        if (not self.config['canonical_artists']) and (not va) and\
+           ('artists' in item):
             for _artist in item['artists']:
-                if _artist['roles'] == 'Default' and\
+                if 'Default' in _artist['roles'].split(', ') and\
                    _artist['categories'] == 'Producer':
                     artist_credit = artist
                     artist = _artist['artist']['name']
@@ -153,20 +164,20 @@ class VocaDBPlugin(BeetsPlugin):
                     break
 
         albumtype = None or item['discType']
-        year = item['releaseDate']['year']
-        month = item['releaseDate']['month']
-        day = item['releaseDate']['day']
+        year = item['releaseDate']['year'] if 'year' in item['releaseDate'] else None
+        month = item['releaseDate']['month'] if 'month' in item['releaseDate'] else None
+        day = item['releaseDate']['day'] if 'day' in item['releaseDate'] else None
 
         mediums = None
         disctitles = None
 
-        if 'discs' in item:
+        if 'discs' in item and item['discs']:
             mediums = len(item['discs'])
             disctitles = {disc['discNumber']: disc['name'] for disc in item['discs']}
 
         label = None
         for _artist in item['artists']:
-            if _artist['categories'] == 'Label':
+            if 'Label' in _artist['categories'].split(', '):
                 label = _artist['name']
                 break
 
@@ -183,7 +194,7 @@ class VocaDBPlugin(BeetsPlugin):
         return AlbumInfo(album_name, album_id, artist, artist_id, tracks,
                          albumtype=albumtype, va=va, year=year, month=month, day=day,
                          label=label, mediums=mediums, artist_sort=None,
-                         catalognum=catalognum, script=None,  # utf-8?
+                         catalognum=catalognum, script='utf-8',  # VocaDB's JSON responses are encoded in UTF-8
                          language=language, country=None,
                          artist_credit=artist_credit, data_source='VocaDB',
                          data_url='http://vocadb.net/albums/%d' % album_id)
