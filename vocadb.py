@@ -2,30 +2,8 @@
 """
 from beets.autotag.hooks import AlbumInfo, TrackInfo, Distance
 from beets.plugins import BeetsPlugin
-from beets.dbcore import types
-from beets import mediafile
 import requests
 import re
-from pprint import pprint
-
-
-def printj(string):
-    import json
-    print(json.dumps(string, indent=2, ensure_ascii=False))
-
-
-# class VocalistsPlugin(BeetsPlugin):
-#     item_types = {'vocalists': types.STRING}
-
-#     def __init__(self):
-#         super(VocalistsPlugin, self).__init__()
-#         vocalists = mediafile.MediaField(
-#             mediafile.MP3PeopleStorageStyle('TIPL', involvement='vocalists'),
-#             mediafile.MP4StorageStyle('----:com.apple.iTunes:Vocalists'),
-#             mediafile.StorageStyle('VOCALISTS'),
-#             mediafile.ASFStorageStyle('beets/Vocalists')
-#         )
-#         self.add_media_field('vocalists', vocalists)
 
 
 class VocaDBPlugin(BeetsPlugin):
@@ -37,7 +15,6 @@ class VocaDBPlugin(BeetsPlugin):
         })
         self._log.debug('Querying VocaDB')
         self.lang = self.config['lang-priority'].get().split(',')
-        # self.import_stages = [self.imported]
 
     def album_distance(self, items, album_info, mapping):
         """Returns the album distance."""
@@ -143,15 +120,6 @@ class VocaDBPlugin(BeetsPlugin):
         artist_credit = None
         artist_id = None
 
-        # Try to find the producer
-        # if 'artists' in song:
-        #     for _artist in song['artists']:
-        #         if _artist['categories'] == 'Producer':  # and _artist['roles'] == 'Default'
-        #             artist_credit = artist
-        #             artist = _artist['artist']['name']
-        #             artist_id = _artist['artist']['id']
-        #             break
-
         length = song['lengthSeconds']
 
         medium = item['discNumber']
@@ -219,48 +187,3 @@ class VocaDBPlugin(BeetsPlugin):
                          language=language, country=None,
                          artist_credit=artist_credit, data_source='VocaDB',
                          data_url='http://vocadb.net/albums/%d' % album_id)
-
-    # def add_vocalists_to_item(self, item):
-    #     """Add the vocalists to a track item."""
-    #     if 'data_source' not in item or not item.data_source == 'VocaDB':
-    #         item.vocalists = ''
-    #         item.store()
-    #         return
-
-    #     lang = self.lang[0] or 'Default'
-    #     r = requests.get('http://vocadb.net/api/songs/%d?fields=Names,Artists&lang=%s' % (item.id, lang),
-    #                      headers={'Accept':'application/json'})
-    #     try:
-    #         song = r.json()
-    #     except:
-    #         self._log.debug('VocaDB JSON Decode Error: (id: %s)' % item.id)
-    #         return None
-
-    #     vocalists = []
-
-    #     # Try to find the producer
-    #     if 'artists' in song:
-    #         for artist in song['artists']:
-    #             if artist['categories'] == 'Vocalist':
-    #                 vocalists.append(artist['name'])
-
-    #     item.vocalists = ', '.join(vocalists)
-    #     item.store()
-
-    # def imported(self, session, task):
-    #     """Event hook called when an import task finishes."""
-    #     if task.is_album:
-    #         for item in task.album.items():
-    #             self.add_vocalists_to_item(item)
-    #         self._log.debug('Added vocalists to items')
-    #     else:
-    #         self.add_vocalists_to_item(task.item)
-
-
-vdb = VocaDBPlugin()
-va = vdb.get_albums('REMEARINESS', False)[0]
-
-pprint(vars(va))
-
-# for track in va.tracks:
-#     pprint(vars(track))
