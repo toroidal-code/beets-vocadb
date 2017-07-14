@@ -16,6 +16,7 @@ class VocaDBPlugin(BeetsPlugin):
             'canonical_artists': True,
             'separator': ', ',
             'whitelist': True,
+            'circles': True,
             'lang-priority': ''  # 'Japanese, Romaji, English'
         })
         self._log.debug('Querying VocaDB')
@@ -75,7 +76,7 @@ class VocaDBPlugin(BeetsPlugin):
 
     def album_for_id(self, album_id):
         lang = self.lang[0] or 'Default'
-        r = requests.get('http://vocadb.net/api/albums/%d?fields=Names,Artists,Discs&lang=%s' % (album_id, lang),
+        r = requests.get('http://vocadb.net/api/albums/%s?fields=Names,Artists,Discs&lang=%s' % (str(album_id), lang),
                          headers={'Accept': 'application/json'})
         try:
             item = r.json()
@@ -132,19 +133,19 @@ class VocaDBPlugin(BeetsPlugin):
         medium_index = item['trackNumber']
 
         lyricist = self.config['separator'].get().join(
-            [_artist['artist']['name']
+            [(_artist['artist']['name'] if 'artist' in _artist else _artist['name'])
              for _artist in song['artists']
              if 'Lyricist' in _artist['roles'].split(', ')]
         ) or None
 
         composer = self.config['separator'].get().join(
-            [_artist['artist']['name']
+            [(_artist['artist']['name'] if 'artist' in _artist else _artist['name'])
              for _artist in song['artists']
              if 'Composer' in _artist['roles'].split(', ')]
         ) or None
 
         arranger = self.config['separator'].get().join(
-            [_artist['artist']['name']
+            [(_artist['artist']['name'] if 'artist' in _artist else _artist['name'])
              for _artist in song['artists']
              if 'Arranger' in _artist['roles'].split(', ')]
         ) or None
@@ -164,17 +165,30 @@ class VocaDBPlugin(BeetsPlugin):
         artist = item['artistString']
         artist_id = None
         artist_credit = None
-        va = (artist == 'Various artists')  # if compilation
+        va = (artist == 'Various artists' or item['discType'] == 'Compilation') # if compilation
+
+        orig_artist = artist # the original artist before we start trying to find better ones
 
         # Try to find the producer
-        if (not self.config['canonical_artists']) and (not va) and\
+        if (not self.config['canonical_artists'].get()) and (not va) and\
            ('artists' in item):
             for _artist in item['artists']:
                 if 'Default' in _artist['roles'].split(', ') and\
-                   _artist['categories'] == 'Producer':
-                    artist_credit = artist
-                    artist = _artist['artist']['name']
-                    artist_id = _artist['artist']['id']
+                   'Producer' in _artist['categories'].split(', '):
+                    artist_credit = orig_artist
+                    artist = _artist['artist']['name'] if 'artist' in _artist else _artist['name']
+                    artist_id = _artist['artist']['id'] if 'artist' in _artist else None
+                    break
+
+        # Working with circles instead of just producers (basically the same as above. Refactor?)
+        if self.config['circles'].get() and not self.config['canonical_artists'].get() and\
+           'artists' in item:
+            for _artist in item['artists']:
+                if 'Default' in _artist['roles'].split(', ') and\
+                   'Circle' in _artist['categories'].split(', '):
+                    artist_credit = orig_artist
+                    artist = _artist['artist']['name'] if 'artist' in _artist else _artist['name']
+                    artist_id = _artist['artist']['id'] if 'artist' in _artist else None
                     break
 
         albumtype = None or item['discType']
@@ -233,7 +247,7 @@ class VocaDBPlugin(BeetsPlugin):
             tags = [_tag['tag']['name'].lower()
                     for _tag in obj['tags']]
 
-            if self.config['whitelist']:
+            if self.config['whitelist'].get():
                 item.genre = self.lg._resolve_genres(tags)
             else:
                 item.genre = self.config['separator'].get().join(tags)
