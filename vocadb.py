@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Adds VocaDB search support to Beets
 """
 from beets.autotag.hooks import AlbumInfo, TrackInfo, Distance
@@ -10,18 +11,22 @@ import re
 class VocaDBPlugin(BeetsPlugin):
     def __init__(self):
         super(VocaDBPlugin, self).__init__()
+        self.base_url = 'http://vocadb.net'
         self.lg = lastgenre.LastGenrePlugin()
         self.config.add({
             'source_weight': 0.5,
             'canonical_artists': True,
             'separator': ', ',
             'whitelist': True,
-            'circles': True,
+            'artist_priority': ['producers', 'circles'],
+            'circles_exclude': [],
+            'genres': True,
             'lang-priority': ''  # 'Japanese, Romaji, English'
         })
         self._log.debug('Querying VocaDB')
         self.lang = self.config['lang-priority'].get().split(',')
-        self.import_stages = [self.imported]
+        if self.config['genres'].get():
+            self.import_stages = [self.imported]
 
     def album_distance(self, items, album_info, mapping):
         """Returns the album distance."""
@@ -55,7 +60,7 @@ class VocaDBPlugin(BeetsPlugin):
         lang = self.lang[0] or 'Default'
 
         # Query VocaDB
-        r = requests.get('http://vocadb.net/api/albums?nameMatchMode=Auto' +
+        r = requests.get(self.base_url + '/api/albums?nameMatchMode=Auto' +
                          '&preferAccurateMatches=true' +
                          '&fields=Names,Artists,Discs' +
                          '&query=%s&lang=%s' % (query, lang),
@@ -76,7 +81,7 @@ class VocaDBPlugin(BeetsPlugin):
 
     def album_for_id(self, album_id):
         lang = self.lang[0] or 'Default'
-        r = requests.get('http://vocadb.net/api/albums/%s?fields=Names,Artists,Discs&lang=%s' % (str(album_id), lang),
+        r = requests.get(self.base_url + '/api/albums/%s?fields=Names,Artists,Discs&lang=%s' % (str(album_id), lang),
                          headers={'Accept': 'application/json'})
         try:
             item = r.json()
@@ -88,7 +93,7 @@ class VocaDBPlugin(BeetsPlugin):
 
     def tracks_for_album_id(self, album_id):
         lang = self.lang[0] or 'Default'
-        r = requests.get('http://vocadb.net/api/albums/%d/tracks?fields=Names,Artists&lang=%s' % (album_id, lang),
+        r = requests.get(self.base_url + '/api/albums/%d/tracks?fields=Names,Artists&lang=%s' % (album_id, lang),
                          headers={'Accept': 'application/json'})
         try:
             tracks = r.json()
@@ -166,29 +171,40 @@ class VocaDBPlugin(BeetsPlugin):
         artist_id = None
         artist_credit = None
         va = (artist == 'Various artists' or item['discType'] == 'Compilation') # if compilation
+        
+        # More detailed artist information
+        if 'artists' in item and not self.config['canonical_artists'].get():
+            orig_artist = artist # the original artist before we start trying to find better ones
+            artist_corrected = False
+            producers = [_artist for _artist in item['artists'] if 'Producer' in _artist['categories'].split(', ') and not _artist['isSupport']]
+            circles = [_artist for _artist in item['artists'] if 'Circle' in _artist['categories'].split(', ') and not _artist['isSupport']]
 
-        orig_artist = artist # the original artist before we start trying to find better ones
+            for val in self.config['artist_priority'].as_str_seq():
+                if val == 'circles':
+                    for _artist in circles:
+                        if 'artist' in _artist:
+                            if (_artist['artist']['name'] in self.config['circles_exclude'].as_str_seq()\
+                                and not len(producers) > 1): # Use a circle, even if it's excluded, when there are multiple primary producers
+                                break
+                            
+                            if ('Default' in _artist['roles'].split(', ') or orig_artist == 'Various artists'):
+                                artist_credit = orig_artist
+                                artist = _artist['artist']['name']
+                                artist_id = _artist['artist']['id']
+                                artist_corrected = True
+                                break
+                        else:
+                             artist = _artist['name']
 
-        # Try to find the producer
-        if (not self.config['canonical_artists'].get()) and (not va) and\
-           ('artists' in item):
-            for _artist in item['artists']:
-                if 'Default' in _artist['roles'].split(', ') and\
-                   'Producer' in _artist['categories'].split(', '):
-                    artist_credit = orig_artist
-                    artist = _artist['artist']['name'] if 'artist' in _artist else _artist['name']
-                    artist_id = _artist['artist']['id'] if 'artist' in _artist else None
-                    break
+                elif val == 'producers':
+                    if len(producers) == 1:
+                        _artist = producers[0]
+                        artist_credit = orig_artist
+                        artist = _artist['artist']['name'] if 'artist' in _artist else _artist['name']
+                        artist_id = _artist['artist']['id'] if 'artist' in _artist else None
+                        artist_corrected = True
 
-        # Working with circles instead of just producers (basically the same as above. Refactor?)
-        if self.config['circles'].get() and not self.config['canonical_artists'].get() and\
-           'artists' in item:
-            for _artist in item['artists']:
-                if 'Default' in _artist['roles'].split(', ') and\
-                   'Circle' in _artist['categories'].split(', '):
-                    artist_credit = orig_artist
-                    artist = _artist['artist']['name'] if 'artist' in _artist else _artist['name']
-                    artist_id = _artist['artist']['id'] if 'artist' in _artist else None
+                if artist_corrected:
                     break
 
         albumtype = None or item['discType']
@@ -213,6 +229,8 @@ class VocaDBPlugin(BeetsPlugin):
 
         track_index = 1
         for track in tracks:
+            if track.medium_index > track_index:
+                track_index = track.medium_index
             track.index = track_index
             track_index += 1
             if disctitles and track.medium and (track.medium in disctitles)\
@@ -225,14 +243,14 @@ class VocaDBPlugin(BeetsPlugin):
                          catalognum=catalognum, script='utf-8',  # VocaDB's JSON responses are encoded in UTF-8
                          language=language, country=None,
                          artist_credit=artist_credit, data_source='VocaDB',
-                         data_url='http://vocadb.net/albums/%d' % album_id)
+                         data_url=(self.base_url + '/albums/%d' % album_id))
 
     def add_genre_to_item(self, item, is_album):
         lang = self.lang[0] or 'Default'
         if is_album:
-            url = 'http://vocadb.net/api/albums/%s?fields=Tags&lang=%s' % (item.mb_albumid, lang)
+            url = self.base_url + '/api/albums/%s?fields=Tags&lang=%s' % (item.mb_albumid, lang)
         else:
-            url = 'http://vocadb.net/api/songs/%s?fields=Tags&lang=%s' % (item.mb_trackid, lang)
+            url = self.base_url + '/api/songs/%s?fields=Tags&lang=%s' % (item.mb_trackid, lang)
 
         r = requests.get(url, headers={'Accept': 'application/json'})
 
@@ -243,15 +261,17 @@ class VocaDBPlugin(BeetsPlugin):
             return None
 
         # Try to find the tags
+        genre = ''
         if 'tags' in obj and obj['tags']:
-            tags = [_tag['tag']['name'].lower()
-                    for _tag in obj['tags']]
+            tags = [_tag['tag']['name'].lower() for _tag in obj['tags']]
 
             if self.config['whitelist'].get():
-                item.genre = self.lg._resolve_genres(tags)
+                genre = self.lg._resolve_genres(tags)
             else:
-                item.genre = self.config['separator'].get().join(tags)
-            item.store()
+                genre = self.config['separator'].get().join(tags)
+
+        item.genre = genre
+        item.store()
 
         if is_album:
             for track in item.items():
@@ -261,4 +281,11 @@ class VocaDBPlugin(BeetsPlugin):
         """Event hook called when an import task finishes."""
         if task.is_album and 'data_source' in task.items[0] and \
            task.items[0].data_source == 'VocaDB':
+            self._log.debug("VocaDB: Fetching tags for %s - %s" % (task.album.albumartist, task.album.album))
             self.add_genre_to_item(task.album, True)
+
+# The UtaiteDB uses the same backend code and is run by the same team as VocaDB
+class UtaiteDBPlugin(VocaDBPlugin):
+    def __init__(self):
+        super(UtaiteDBPlugin, self).__init__()
+        self.base_url = 'http://utaitedb.net'
