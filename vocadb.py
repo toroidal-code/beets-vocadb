@@ -124,8 +124,15 @@ class VocaDBPlugin(BeetsPlugin):
         return (item_name, language)
 
     def get_track_info(self, item):
-        """"Convert JSON data into a format beets can read."""
-        song = item['song']
+        # This try-except is necessary because of albums like https://vocadb.net/Al/18564, that have songs with very little info
+        # You can probably improve this a lot by still providing the track title, but I spent way too much time debuggint this as it is
+        try:
+            """"Convert JSON data into a format beets can read."""
+            song = item['song']
+            self._log.debug(f"after song")
+        except:
+            return TrackInfo("dummy_title", 0, medium_index=0, medium_total=None, data_source='VocaDB',)
+
         title, _ = self.get_preferred_name(item['song'])
         track_id = song['id']
         artist = song['artistString']
