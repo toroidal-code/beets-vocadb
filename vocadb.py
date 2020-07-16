@@ -14,14 +14,14 @@ class VocaDBPlugin(BeetsPlugin):
         self.base_url = 'http://vocadb.net'
         self.lg = lastgenre.LastGenrePlugin()
         self.config.add({
-            'source_weight': 0.5,
+            'source_weight': 0.0,
             'canonical_artists': True,
             'separator': ', ',
             'whitelist': True,
             'artist_priority': ['producers', 'circles'],
             'circles_exclude': [],
             'genres': True,
-            'lang-priority': ''  # 'Japanese, Romaji, English'
+            'lang-priority': 'English'  # 'Japanese, Romaji, English'
         })
         self._log.debug('Querying VocaDB')
         self.lang = self.config['lang-priority'].get().split(',')
@@ -93,7 +93,9 @@ class VocaDBPlugin(BeetsPlugin):
 
     def tracks_for_album_id(self, album_id):
         lang = self.lang[0] or 'Default'
-        r = requests.get(self.base_url + '/api/albums/%d/tracks?fields=Names,Artists&lang=%s' % (album_id, lang),
+        url = self.base_url + '/api/albums/%d/tracks?fields=Names,Artists&lang=%s' % (album_id, lang)
+        self._log.debug(f"Url to access album: {url}")
+        r = requests.get(url,
                          headers={'Accept': 'application/json'})
         try:
             tracks = r.json()
@@ -124,8 +126,15 @@ class VocaDBPlugin(BeetsPlugin):
         return (item_name, language)
 
     def get_track_info(self, item):
-        """"Convert JSON data into a format beets can read."""
-        song = item['song']
+        # This try-except is necessary because of albums like https://vocadb.net/Al/18564, that have songs with very little info
+        # You can probably improve this a lot by still providing the track title, but I spent way too much time debuggint this as it is
+        try:
+            """"Convert JSON data into a format beets can read."""
+            song = item['song']
+            self._log.debug(f"after song")
+        except:
+            return TrackInfo("dummy_title", 0, medium_index=0, medium_total=None, data_source='VocaDB',)
+
         title, _ = self.get_preferred_name(item['song'])
         track_id = song['id']
         artist = song['artistString']
@@ -171,7 +180,7 @@ class VocaDBPlugin(BeetsPlugin):
         artist_id = None
         artist_credit = None
         va = (artist == 'Various artists' or item['discType'] == 'Compilation') # if compilation
-        
+
         # More detailed artist information
         if 'artists' in item and not self.config['canonical_artists'].get():
             orig_artist = artist # the original artist before we start trying to find better ones
@@ -186,7 +195,7 @@ class VocaDBPlugin(BeetsPlugin):
                             if (_artist['artist']['name'] in self.config['circles_exclude'].as_str_seq()\
                                 and not len(producers) > 1): # Use a circle, even if it's excluded, when there are multiple primary producers
                                 break
-                            
+
                             if ('Default' in _artist['roles'].split(', ') or orig_artist == 'Various artists'):
                                 artist_credit = orig_artist
                                 artist = _artist['artist']['name']
@@ -237,13 +246,26 @@ class VocaDBPlugin(BeetsPlugin):
                and disctitles[track.medium]:
                 track.disctitle = disctitles[track.medium]
 
+
+        self._log.debug(f"old artist: {artist}")
+        try:
+            artist = re.search(r'(^.*)(\s+feat\.)', artist).group(1)
+            self._log.debug(f"new artist: {artist}")
+            artist = artist.replace(",", ";")
+        except:
+            pass
+
+        if artist == "Various artists":
+            artist = "Various Artists"
+            self._log.debug(f"various artist?: {artist}")
+
         return AlbumInfo(album_name, album_id, artist, artist_id, tracks,
                          albumtype=albumtype, va=va, year=year, month=month, day=day,
                          label=label, mediums=mediums, artist_sort=None,
                          catalognum=catalognum, script='utf-8',  # VocaDB's JSON responses are encoded in UTF-8
                          language=language, country=None,
                          artist_credit=artist_credit, data_source='VocaDB',
-                         data_url=(self.base_url + '/albums/%d' % album_id))
+                         data_url=(self.base_url + '/AL/%d' % album_id))
 
     def add_genre_to_item(self, item, is_album):
         lang = self.lang[0] or 'Default'
