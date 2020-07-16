@@ -180,7 +180,7 @@ class VocaDBPlugin(BeetsPlugin):
         artist_id = None
         artist_credit = None
         va = (artist == 'Various artists' or item['discType'] == 'Compilation') # if compilation
-        
+
         # More detailed artist information
         if 'artists' in item and not self.config['canonical_artists'].get():
             orig_artist = artist # the original artist before we start trying to find better ones
@@ -195,7 +195,7 @@ class VocaDBPlugin(BeetsPlugin):
                             if (_artist['artist']['name'] in self.config['circles_exclude'].as_str_seq()\
                                 and not len(producers) > 1): # Use a circle, even if it's excluded, when there are multiple primary producers
                                 break
-                            
+
                             if ('Default' in _artist['roles'].split(', ') or orig_artist == 'Various artists'):
                                 artist_credit = orig_artist
                                 artist = _artist['artist']['name']
