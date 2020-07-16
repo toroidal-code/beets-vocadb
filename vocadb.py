@@ -93,7 +93,9 @@ class VocaDBPlugin(BeetsPlugin):
 
     def tracks_for_album_id(self, album_id):
         lang = self.lang[0] or 'Default'
-        r = requests.get(self.base_url + '/api/albums/%d/tracks?fields=Names,Artists&lang=%s' % (album_id, lang),
+        url = self.base_url + '/api/albums/%d/tracks?fields=Names,Artists&lang=%s' % (album_id, lang)
+        self._log.debug(f"Url to access album: {url}")
+        r = requests.get(url,
                          headers={'Accept': 'application/json'})
         try:
             tracks = r.json()
