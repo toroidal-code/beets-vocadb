@@ -243,7 +243,7 @@ class VocaDBPlugin(BeetsPlugin):
                          catalognum=catalognum, script='utf-8',  # VocaDB's JSON responses are encoded in UTF-8
                          language=language, country=None,
                          artist_credit=artist_credit, data_source='VocaDB',
-                         data_url=(self.base_url + '/albums/%d' % album_id))
+                         data_url=(self.base_url + '/AL/%d' % album_id))
 
     def add_genre_to_item(self, item, is_album):
         lang = self.lang[0] or 'Default'
