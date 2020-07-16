@@ -237,6 +237,19 @@ class VocaDBPlugin(BeetsPlugin):
                and disctitles[track.medium]:
                 track.disctitle = disctitles[track.medium]
 
+
+        self._log.debug(f"old artist: {artist}")
+        try:
+            artist = re.search(r'(^.*)(\s+feat\.)', artist).group(1)
+            self._log.debug(f"new artist: {artist}")
+            artist = artist.replace(",", ";")
+        except:
+            pass
+
+        if artist == "Various artists":
+            artist = "Various Artists"
+            self._log.debug(f"various artist?: {artist}")
+
         return AlbumInfo(album_name, album_id, artist, artist_id, tracks,
                          albumtype=albumtype, va=va, year=year, month=month, day=day,
                          label=label, mediums=mediums, artist_sort=None,
