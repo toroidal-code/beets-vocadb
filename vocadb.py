@@ -14,14 +14,14 @@ class VocaDBPlugin(BeetsPlugin):
         self.base_url = 'http://vocadb.net'
         self.lg = lastgenre.LastGenrePlugin()
         self.config.add({
-            'source_weight': 0.5,
+            'source_weight': 0.0,
             'canonical_artists': True,
             'separator': ', ',
             'whitelist': True,
             'artist_priority': ['producers', 'circles'],
             'circles_exclude': [],
             'genres': True,
-            'lang-priority': ''  # 'Japanese, Romaji, English'
+            'lang-priority': 'English'  # 'Japanese, Romaji, English'
         })
         self._log.debug('Querying VocaDB')
         self.lang = self.config['lang-priority'].get().split(',')
